@@ -70,7 +70,6 @@ func ExtractMboxUris(n *html.Node) []string {
 }
 
 func main() {
-	//DownloadToFile("http://postgresql.org/list/pgsql-hackers/", "archive.html")
 	uri := "http://postgresql.org/list/pgsql-hackers/"
 	reader := HTTPDownload(uri)
 	doc, err := html.Parse(reader)
