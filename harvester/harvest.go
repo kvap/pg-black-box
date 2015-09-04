@@ -1,15 +1,16 @@
 package main
 
 import (
-	"net/http"
-	"log"
+	"errors"
+	"golang.org/x/net/html"
 	"io"
 	"io/ioutil"
-	"golang.org/x/net/html"
-	"strings"
-	"path/filepath"
+	"log"
+	"net/http"
 	"os"
-	"errors"
+	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 func redirectFunc(req *http.Request, via []*http.Request) error {
@@ -20,8 +21,8 @@ func redirectFunc(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-func OpenURL(url, username, password string) io.ReadCloser {
-	log.Printf("reading %s.\n", url)
+func RequestURL(url, method, username, password string) *http.Response {
+	log.Printf("requesting %s.\n", url)
 
 	client := &http.Client{
 		CheckRedirect: redirectFunc,
@@ -55,7 +56,20 @@ func OpenURL(url, username, password string) io.ReadCloser {
 	if res.StatusCode != 200 {
 		log.Fatalf("status code %d for %s\n", res.StatusCode, url)
 	}
-	return res.Body
+
+	return res
+}
+
+func OpenURL(url, username, password string) io.ReadCloser {
+	return RequestURL(url, "GET", username, password).Body
+}
+
+func SizeURL(url, username, password string) uint64 {
+	size, _ := strconv.ParseUint(
+		RequestURL(url, "HEAD", username, password).Header.Get("Content-Length"),
+		10, 64,
+	)
+	return size
 }
 
 func ReadURL(url, username, password string) []byte {
@@ -136,6 +150,12 @@ func main() {
 	urls := ExtractMboxURLs(doc)
 	for _, url := range(urls) {
 		filename := filepath.Base(url)
-		SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
+		//SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
+		size := SizeURL(
+			"http://postgresql.org" + url,
+			"archives",
+			"antispam",
+		)
+		log.Printf("%d : %s\n", size, filename)
 	}
 }
