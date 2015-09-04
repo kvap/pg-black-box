@@ -2,84 +2,140 @@ package main
 
 import (
 	"net/http"
-	"fmt"
 	"log"
 	"io"
 	"io/ioutil"
 	"golang.org/x/net/html"
 	"strings"
 	"path/filepath"
+	"os"
+	"errors"
 )
 
-func HTTPDownloadBytes(uri string) ([]byte, error) {
-	fmt.Printf("HTTPDownload From: %s.\n", uri)
-	res, err := http.Get(uri)
-	if err != nil {
-		log.Fatal(err)
+func redirectFunc(req *http.Request, via []*http.Request) error {
+	if len(via) > 10 {
+		return errors.New("too many redirects")
 	}
-	defer res.Body.Close()
-	d, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("ReadFile: Size of download: %d\n", len(d))
-	return d, err
+	req.Header = via[0].Header
+	return nil
 }
 
-func HTTPDownload(uri string) (io.Reader) {
-	fmt.Printf("HTTPDownload From: %s.\n", uri)
-	res, err := http.Get(uri)
-	if err != nil {
-		log.Fatal(err)
+func OpenURL(url, username, password string) io.ReadCloser {
+	log.Printf("reading %s.\n", url)
+
+	client := &http.Client{
+		CheckRedirect: redirectFunc,
+	}
+
+	var res *http.Response
+	var err error
+	if username == "" {
+		res, err = client.Get(url)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("setting basic auth to %s:%s\n", username, password)
+		req.SetBasicAuth(username, password)
+
+		res, err = client.Do(req)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if res.StatusCode == 401 {
+		log.Fatalf("status code %d for %s: auth challenge is [%s]\n", res.StatusCode, url, res.Header.Get("WWW-Authenticate"))
+	}
+	if res.StatusCode != 200 {
+		log.Fatalf("status code %d for %s\n", res.StatusCode, url)
 	}
 	return res.Body
 }
 
-func WriteFile(dst string, d []byte) error {
-	fmt.Printf("WriteFile: Size of download: %d\n", len(d))
-	err := ioutil.WriteFile(dst, d, 0444)
+func ReadURL(url, username, password string) []byte {
+	body := OpenURL(url, username, password)
+	defer body.Close()
+
+	data, err := ioutil.ReadAll(body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return err
+	log.Printf("got %d bytes for %s\n", len(data), url)
+	return data
 }
 
-func DownloadToFile(uri string, dst string) {
-	fmt.Printf("DownloadToFile From: %s.\n", uri)
-	if d, err := HTTPDownloadBytes(uri); err == nil {
-		fmt.Printf("downloaded %s.\n", uri)
-		if WriteFile(dst, d) == nil {
-			fmt.Printf("saved %s as %s\n", uri, dst)
+func SaveBytes(data []byte, dst string) {
+	file, err := os.Create(dst)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer file.Close()
+
+	n, err := file.Write(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("saved %d bytes into %s\n", n, dst)
+}
+
+func SaveURL(url, username, password, dst string) {
+	log.Printf("%s -> %s\n", url, dst)
+
+	reader := OpenURL(url, username, password)
+	defer reader.Close()
+
+	writer, err := os.Create(dst)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer writer.Close()
+
+	var total_written int64 = 0
+	for {
+		written, err := io.CopyN(writer, reader, 102400)
+		total_written += written
+		log.Printf("fetching %s (%d bytes so far)\n", dst, total_written)
+		if err != nil {
+			break
 		}
 	}
+
+	log.Printf("%s saved (%d bytes total)\n", dst, total_written)
 }
 
-func ExtractMboxUris(n *html.Node) []string {
-	uris := make([]string, 0)
+func ExtractMboxURLs(n *html.Node) []string {
+	urls := make([]string, 0)
 	if n.Type == html.ElementNode && n.Data == "a" {
 		for _, attr := range n.Attr {
 			if attr.Key == "href" && strings.Contains(attr.Val, "mbox") {
-				uris = append(uris, attr.Val)
+				urls = append(urls, attr.Val)
 			}
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		uris = append(uris, ExtractMboxUris(c)...)
+		urls = append(urls, ExtractMboxURLs(c)...)
 	}
-	return uris
+	return urls
 }
 
 func main() {
-	uri := "http://postgresql.org/list/pgsql-hackers/"
-	reader := HTTPDownload(uri)
+	url := "http://postgresql.org/list/pgsql-hackers/"
+	reader := OpenURL(url, "", "")
+	defer reader.Close()
 	doc, err := html.Parse(reader)
 	if err != nil {
-		log.Fatal("could not parse %s", uri)
+		log.Fatalf("could not parse %s", url)
 	}
-	uris := ExtractMboxUris(doc)
-	for _, uri := range(uris) {
-		//fmt.Println(uri)
-		filename := filepath.Base(uri)
-		DownloadToFile("http://postgresql.org" + uri, filename)
+	urls := ExtractMboxURLs(doc)
+	for _, url := range(urls) {
+		filename := filepath.Base(url)
+		SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
 	}
 }
