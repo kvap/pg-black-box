@@ -139,6 +139,11 @@ func ExtractMboxURLs(n *html.Node) []string {
 	return urls
 }
 
+type NameSize struct {
+	Name string
+	Size uint64
+}
+
 func main() {
 	url := "http://postgresql.org/list/pgsql-hackers/"
 	reader := OpenURL(url, "", "")
@@ -148,14 +153,33 @@ func main() {
 		log.Fatalf("could not parse %s", url)
 	}
 	urls := ExtractMboxURLs(doc)
-	for _, url := range(urls) {
-		filename := filepath.Base(url)
-		//SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
-		size := SizeURL(
-			"http://postgresql.org" + url,
-			"archives",
-			"antispam",
-		)
-		log.Printf("%d : %s\n", size, filename)
+
+	sizes := make(map[string]uint64)
+	sizechan := make(chan NameSize)
+	for _, url := range urls {
+		go func(url string) {
+			size := SizeURL(
+				"http://postgresql.org" + url,
+				"archives",
+				"antispam",
+			)
+			log.Printf("%d : %s\n", size, url)
+			sizechan <- NameSize{url, size}
+		}(url)
+		// SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
+		// log.Printf("%d : %s\n", size, filename)
 	}
+	for i := 0; i < len(urls); i++ {
+		namesize := <-sizechan
+		sizes[namesize.Name] = namesize.Size
+	}
+
+	var total_size uint64 = 0
+	for url, size := range sizes {
+		total_size += size
+		filename := filepath.Base(url)
+		log.Printf("%d = %s\n", size, filename)
+	}
+
+	log.Printf("%d bytes total\n", total_size)
 }
