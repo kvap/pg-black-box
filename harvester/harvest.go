@@ -99,7 +99,7 @@ func SaveBytes(data []byte, dst string) {
 	log.Printf("saved %d bytes into %s\n", n, dst)
 }
 
-func SaveURL(url, username, password, dst string) {
+func SaveURL(url, username, password, dst string, file_size uint64, total_done uint64, total_size uint64) {
 	log.Printf("%s -> %s\n", url, dst)
 
 	reader := OpenURL(url, username, password)
@@ -111,17 +111,20 @@ func SaveURL(url, username, password, dst string) {
 	}
 	defer writer.Close()
 
-	var total_written int64 = 0
+	var file_done uint64 = 0
 	for {
 		written, err := io.CopyN(writer, reader, 102400)
-		total_written += written
-		log.Printf("fetching %s (%d bytes so far)\n", dst, total_written)
+		file_done += uint64(written)
+		log.Printf(
+			"fetching %s (%d/%d bytes of file = %0.2f%%, %d/%d bytes total = %0.2f%%)\n",
+			dst,
+			file_done, file_size, float32(file_done) / float32(file_size),
+			total_done + file_done, total_size, float32(total_done + file_done) / float32(total_size),
+		)
 		if err != nil {
 			break
 		}
 	}
-
-	log.Printf("%s saved (%d bytes total)\n", dst, total_written)
 }
 
 func ExtractMboxURLs(n *html.Node) []string {
@@ -166,8 +169,6 @@ func main() {
 			log.Printf("%d : %s\n", size, url)
 			sizechan <- NameSize{url, size}
 		}(url)
-		// SaveURL("http://postgresql.org" + url, "archives", "antispam", filename)
-		// log.Printf("%d : %s\n", size, filename)
 	}
 	for i := 0; i < len(urls); i++ {
 		namesize := <-sizechan
@@ -177,9 +178,25 @@ func main() {
 	var total_size uint64 = 0
 	for url, size := range sizes {
 		total_size += size
-		filename := filepath.Base(url)
-		log.Printf("%d = %s\n", size, filename)
+		log.Printf("%d = %s\n", size, url)
 	}
 
 	log.Printf("%d bytes total\n", total_size)
+
+	var total_done uint64 = 0
+	for _, url := range urls {
+		file_name := filepath.Base(url)
+		file_size := sizes[url]
+		SaveURL(
+			"http://postgresql.org" + url,
+			"archives",
+			"antispam",
+			file_name,
+			file_size,
+			total_done,
+			total_size,
+		)
+		total_done += file_size
+	}
+	log.Printf("done.\n")
 }
