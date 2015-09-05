@@ -118,8 +118,8 @@ func SaveURL(url, username, password, dst string, file_size uint64, total_done u
 		log.Printf(
 			"fetching %s (%d/%d bytes of file = %0.2f%%, %d/%d bytes total = %0.2f%%)\n",
 			dst,
-			file_done, file_size, float32(file_done) / float32(file_size),
-			total_done + file_done, total_size, float32(total_done + file_done) / float32(total_size),
+			file_done, file_size, 100 * float32(file_done) / float32(file_size),
+			total_done + file_done, total_size, 100 * float32(total_done + file_done) / float32(total_size),
 		)
 		if err != nil {
 			break
