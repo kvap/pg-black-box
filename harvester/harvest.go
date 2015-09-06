@@ -99,7 +99,20 @@ func SaveBytes(data []byte, dst string) {
 	log.Printf("saved %d bytes into %s\n", n, dst)
 }
 
+func GetFileSize(filename string) uint64 {
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return 0
+	}
+
+	return uint64(fi.Size())
+}
+
 func SaveURL(url, username, password, dst string, file_size uint64, total_done uint64, total_size uint64) {
+	if file_size == GetFileSize(dst) {
+		log.Printf("%s -> %s (already fetched)\n", url, dst)
+		return
+	}
 	log.Printf("%s -> %s\n", url, dst)
 
 	reader := OpenURL(url, username, password)
@@ -142,13 +155,8 @@ func ExtractMboxURLs(n *html.Node) []string {
 	return urls
 }
 
-type NameSize struct {
-	Name string
-	Size uint64
-}
-
-func main() {
-	url := "http://postgresql.org/list/pgsql-hackers/"
+func GetMboxURLs(prefix, list string) []string {
+	url := prefix + "/list/" + list + "/"
 	reader := OpenURL(url, "", "")
 	defer reader.Close()
 	doc, err := html.Parse(reader)
@@ -156,13 +164,21 @@ func main() {
 		log.Fatalf("could not parse %s", url)
 	}
 	urls := ExtractMboxURLs(doc)
+	return urls
+}
 
+type NameSize struct {
+	Name string
+	Size uint64
+}
+
+func SaveURLs(prefix string, urls []string) {
 	sizes := make(map[string]uint64)
 	sizechan := make(chan NameSize)
 	for _, url := range urls {
 		go func(url string) {
 			size := SizeURL(
-				"http://postgresql.org" + url,
+				prefix + url,
 				"archives",
 				"antispam",
 			)
@@ -188,7 +204,7 @@ func main() {
 		file_name := filepath.Base(url)
 		file_size := sizes[url]
 		SaveURL(
-			"http://postgresql.org" + url,
+			prefix + url,
 			"archives",
 			"antispam",
 			file_name,
@@ -198,5 +214,11 @@ func main() {
 		)
 		total_done += file_size
 	}
+}
+
+func main() {
+	urls := GetMboxURLs("http://postgresql.org", "pgsql-hackers")
+	SaveURLs("http://postgresql.org", urls)
+
 	log.Printf("done.\n")
 }
